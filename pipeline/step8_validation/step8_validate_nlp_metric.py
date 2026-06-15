@@ -208,23 +208,18 @@ print(f"\n{'=' * 65}", flush=True)
 print(f"PHASE 2 — BASELINE NOVELTY SCORES (ROLLING WINDOW)", flush=True)
 print(f"{'=' * 65}", flush=True)
 
-def build_baseline_text(row):
-    title    = str(row["title_text"]).strip()      if pd.notna(row["title_text"])      else ""
-    abstract = str(row["abstract_text"]).strip()   if pd.notna(row["abstract_text"])   else ""
-    claims   = str(row["all_claims_text"]).strip() if pd.notna(row["all_claims_text"]) else ""
-    text = title
-    remaining = MAX_CHARS_BASELINE - len(text)
-    if remaining > 0 and abstract:
-        text += " " + abstract[:remaining]
-    remaining = MAX_CHARS_BASELINE - len(text)
-    if remaining > 0 and claims:
-        text += " " + claims[:remaining]
-    return text.strip()
-
 print(f"Building full_text (title -> abstract -> claims, max {MAX_CHARS_BASELINE} chars)...",
       flush=True)
 t0 = time.time()
-df["full_text"] = df.apply(build_baseline_text, axis=1)
+_title    = df["title_text"].fillna("").astype(str).str.strip()
+_abstract = df["abstract_text"].fillna("").astype(str).str.strip()
+_claims   = df["all_claims_text"].fillna("").astype(str).str.strip()
+df["full_text"] = (
+    (_title + " " + _abstract + " " + _claims)
+    .str[:MAX_CHARS_BASELINE]
+    .str.strip()
+)
+del _title, _abstract, _claims
 print(f"  Done in {time.time()-t0:.1f}s", flush=True)
 
 focal_df["full_text"] = df.loc[focal_df.index, "full_text"].values
@@ -277,42 +272,39 @@ def tfidf_subgroup_fast(subgroup, focal_df, prior_df, prior_art_years):
         )
         vectorizer.fit(fit_pool["full_text"].fillna(""))
         n_features    = len(vectorizer.vocabulary_)
-        prior_vecs_yr = vectorizer.transform(fit_pool["full_text"].fillna(""))
+        prior_vecs_yr  = vectorizer.transform(fit_pool["full_text"].fillna(""))
+        prior_dense_yr = prior_vecs_yr.toarray()   # convert once; avoids per-row .toarray() in loop
 
         year_focal    = focal_sub[
             focal_sub["filing_date"].dt.year == focal_year
         ].sort_values("filing_date")
-        focal_vecs_yr = vectorizer.transform(year_focal["full_text"].fillna(""))
+        focal_vecs_yr  = vectorizer.transform(year_focal["full_text"].fillna(""))
+        focal_dense_yr = focal_vecs_yr.toarray()   # convert once
 
         prior_dates_yr   = fit_pool["filing_date"].values
         focal_dates_yr   = year_focal["filing_date"].values
         focal_indices_yr = year_focal.index.to_list()
 
-        left = right = window_count = 0
-        window_sum = np.zeros(n_features, dtype=np.float64)
+        left = right = 0
 
         for i in range(len(year_focal)):
             filing_date  = focal_dates_yr[i]
             window_start = filing_date - pd.DateOffset(years=prior_art_years)
 
             while right < len(fit_pool) and prior_dates_yr[right] < filing_date:
-                window_sum += prior_vecs_yr[right].toarray().ravel()
-                window_count += 1
                 right += 1
 
             while left < right and prior_dates_yr[left] < window_start:
-                window_sum -= prior_vecs_yr[left].toarray().ravel()
-                window_count -= 1
                 left += 1
 
             focal_idx = focal_indices_yr[i]
-            if window_count == 0:
+            if right == left:
                 scores[focal_idx] = np.nan
             else:
-                mean_prior        = window_sum / window_count
-                focal_row         = focal_vecs_yr[i].toarray().ravel()
-                mean_sim          = float(np.dot(focal_row, mean_prior))
-                scores[focal_idx] = 1.0 - mean_sim
+                focal_row   = focal_dense_yr[i]
+                window_vecs = prior_dense_yr[left:right]  # O(1) numpy slice
+                cosines     = window_vecs.dot(focal_row)  # shape: (right-left,)
+                scores[focal_idx] = 1.0 - float(cosines.mean())
 
     return scores
 
@@ -396,30 +388,31 @@ try:
         prior_indices = prior_sub.index.to_list()
         focal_indices = focal_sub.index.to_list()
 
-        left = right = window_count = 0
-        window_sum = np.zeros(W2V_DIM, dtype=np.float64)
+        # Precompute dense matrix once so inner loop uses O(1) numpy slices
+        prior_matrix = np.stack([w2v_vecs[idx] for idx in prior_indices])
+
+        left = right = 0
 
         for i in range(len(focal_sub)):
             filing_date  = focal_dates[i]
             window_start = filing_date - pd.DateOffset(years=prior_art_years)
 
             while right < len(prior_sub) and prior_dates[right] < filing_date:
-                window_sum += w2v_vecs[prior_indices[right]]
-                window_count += 1
                 right += 1
 
             while left < right and prior_dates[left] < window_start:
-                window_sum -= w2v_vecs[prior_indices[left]]
-                window_count -= 1
                 left += 1
 
-            focal_idx = focal_indices[i]
+            focal_idx    = focal_indices[i]
+            window_count = right - left
+
             if focal_idx not in w2v_vecs or window_count == 0:
                 scores[focal_idx] = np.nan
             else:
-                mean_prior        = window_sum / window_count
-                mean_sim          = float(np.dot(w2v_vecs[focal_idx], mean_prior))
-                scores[focal_idx] = 1.0 - mean_sim
+                focal_vec   = w2v_vecs[focal_idx]
+                window_vecs = prior_matrix[left:right]  # O(1) numpy slice
+                cosines     = window_vecs.dot(focal_vec)
+                scores[focal_idx] = 1.0 - float(cosines.mean())
 
         return scores
 
