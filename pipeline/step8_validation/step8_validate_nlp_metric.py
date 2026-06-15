@@ -27,8 +27,8 @@ Model structure (motivated by var/mean ~ 49 in corrected citation data):
               the structural-zero probability from the inflate intercept
               jointly determine whether ZINB is preferred over NB2.
 
-Baseline comparison (Appendix Table):
-  - TF-IDF cosine similarity novelty  (lookahead-corrected: per-year IDF)
+Baseline comparison:
+  - TF-IDF cosine similarity novelty  
   - word2vec average-vector novelty
   - SBERT backward similarity novelty (main specification)
 
@@ -231,7 +231,7 @@ if DEBUG:
 print(f"  CPC subgroups to process: {len(subgroups):,}", flush=True)
 
 # -------------------------------------------------------------------------
-# 2a — TF-IDF Novelty (Rolling Window, per-year IDF to avoid lookahead)
+# 2a — TF-IDF Novelty 
 # -------------------------------------------------------------------------
 print(f"\n--- TF-IDF backward similarity (rolling window, per-year IDF) ---",
       flush=True)
