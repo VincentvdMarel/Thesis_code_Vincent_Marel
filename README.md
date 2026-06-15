@@ -50,7 +50,7 @@ The pipeline facilitates a **Difference-in-Differences (DiD)** causal analysis t
 * **`step7e_check_post_coverage.py`** — Validates the integrity of the constructed panel, dropping sparse control/treated matched pairs to ensure balanced parallel trends and post-merger observations.
 
 ### Phase 8: Metric Validation
-* **`step8_validate_nlp_metric.py`** — Validates the SBERT/FAISS novelty metric via OLS regression. Regresses 5-year forward citations against the novelty score (using the 2010-2015 focal dataset) to mathematically prove the metric's external validity before utilizing it in the main hypotheses.
+* **`step8_validate_nlp_metric.py`** — Validates the SBERT/FAISS novelty metric via OLS regression. Regresses 5-year forward citations against the novelty score (using the 2010-2015 focal dataset).
 
 ### Phase 9: Descriptive Statistics & Econometrics
 * **`step9a_descriptive_stats.py`** — Generates summary statistics (Table 1), correlation matrices, and density plots for the final thesis presentation.
